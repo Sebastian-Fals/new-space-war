@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# VS Code
+.vscode/
+
+# PyInstaller
+*.spec
+build/
+dist/
+releases/
+
+# Game specific
+settings.json
+output.txt
+*.log
