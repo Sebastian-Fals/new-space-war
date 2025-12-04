@@ -13,13 +13,17 @@ class Checkbox(UIElement):
         if self.callback:
             self.callback(self.checked)
             
-    def render(self):
-        color = (0.2, 0.6, 1.0, 0.8) if self.hovered else (0.1, 0.3, 0.5, 0.6)
-        self.render_rect(self.x, self.y, self.width, self.height, color, border=True)
+    def render(self, renderer):
+        # Background
+        color = (0.1, 0.2, 0.4, 0.8) if self.hovered else (0.05, 0.1, 0.2, 0.8)
+        self.render_rect(renderer, self.x, self.y, self.width, self.height, color, border=True, border_color=(0.3, 0.6, 0.9, 0.8))
         
         if self.checked:
-            # Draw checkmark (green box for now)
-            self.render_rect(self.x + 5, self.y + 5, self.width - 10, self.height - 10, (0.0, 1.0, 0.0, 1.0))
+            # Draw checkmark (Cyan Glow)
+            # Inner box
+            self.render_rect(renderer, self.x + 6, self.y + 6, self.width - 12, self.height - 12, (0.0, 0.8, 1.0, 1.0))
+            # Glow
+            self.render_rect(renderer, self.x + 4, self.y + 4, self.width - 8, self.height - 8, (0.0, 0.8, 1.0, 0.4))
             
         if self.label:
-            self.text_renderer.render_text(self.label, self.x + self.width + 10, self.y, (255, 255, 255))
+            self.text_renderer.render_text(renderer, self.label, self.x + self.width + 15, self.y + 5, (255, 255, 255))

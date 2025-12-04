@@ -18,3 +18,5 @@ releases/
 settings.json
 output.txt
 *.log
+
+.agent/

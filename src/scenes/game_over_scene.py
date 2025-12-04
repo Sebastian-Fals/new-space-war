@@ -20,6 +20,10 @@ class GameOverScene(Scene):
         self.particle_system = ParticleSystem()
         self.ui_elements = []
         
+        # Restore mouse visibility and release grab
+        pygame.mouse.set_visible(True)
+        pygame.event.set_grab(False)
+        
         self.recalculate_layout()
         
     def recalculate_layout(self):
@@ -35,11 +39,11 @@ class GameOverScene(Scene):
         start_y = cy + 150
         
         # Retry Button
-        btn_retry = Button(cx - btn_w // 2, start_y, btn_w, btn_h, "RETRY", self.retry_game, self.text_renderer)
+        btn_retry = Button(cx - btn_w // 2, start_y, btn_w, btn_h, self.game.localization.get("retry").upper(), self.retry_game, self.text_renderer)
         self.ui_elements.append(btn_retry)
         
         # Menu Button
-        btn_menu = Button(cx - btn_w // 2, start_y + spacing, btn_w, btn_h, "MAIN MENU", self.goto_menu, self.text_renderer)
+        btn_menu = Button(cx - btn_w // 2, start_y + spacing, btn_w, btn_h, self.game.localization.get("main_menu").upper(), self.goto_menu, self.text_renderer)
         self.ui_elements.append(btn_menu)
         
     def retry_game(self):
@@ -51,13 +55,7 @@ class GameOverScene(Scene):
         self.game.scene_manager.set_scene(MenuScene(self.game))
         
     def get_mouse_pos(self):
-        mx, my = pygame.mouse.get_pos()
-        vw, vh = self.game.virtual_width, self.game.virtual_height
-        ww, wh = self.game.window.width, self.game.window.height
-        scale = min(ww / vw, wh / vh)
-        tx = (ww - vw * scale) / 2
-        ty = (wh - vh * scale) / 2
-        return (mx - tx) / scale, (my - ty) / scale
+        return self.game.input_manager.get_mouse_pos()
 
     def handle_events(self, events):
         vmx, vmy = self.get_mouse_pos()
@@ -68,65 +66,84 @@ class GameOverScene(Scene):
         self.particle_system.update(dt)
         
     def render(self):
+        # --- POST PROCESSING START ---
+        self.game.post_processor.begin_capture()
+        
         # Use the warp background but maybe red tinted?
         # For now just standard render
-        self.game.warp_bg.render(self.game.global_time)
+        glMatrixMode(GL_PROJECTION)
+        glLoadIdentity()
+        glOrtho(0, self.game.window.width, self.game.window.height, 0, -1, 1)
+        glMatrixMode(GL_MODELVIEW)
+        glLoadIdentity()
         
+        # Calculate Scissor Rect
         vw, vh = self.game.virtual_width, self.game.virtual_height
         ww, wh = self.game.window.width, self.game.window.height
         scale = min(ww / vw, wh / vh)
         tx = (ww - vw * scale) / 2
         ty = (wh - vh * scale) / 2
         
-        glPushMatrix()
-        glTranslatef(tx, ty, 0)
-        glScalef(scale, scale, 1.0)
+        glEnable(GL_SCISSOR_TEST)
+        glScissor(int(tx), int(ty), int(vw * scale), int(vh * scale))
         
-        glDisable(GL_TEXTURE_2D)
-        glEnable(GL_BLEND)
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        self.game.warp_bg.render(self.game.global_time)
         
-        # Dark Overlay
-        glColor4f(0.0, 0.0, 0.0, 0.7)
-        glBegin(GL_QUADS)
-        glVertex2f(0, 0)
-        glVertex2f(vw, 0)
-        glVertex2f(vw, vh)
-        glVertex2f(0, vh)
-        glEnd()
+        glDisable(GL_SCISSOR_TEST)
+        
+        self.game.post_processor.end_capture()
+        # --- POST PROCESSING END ---
+        
+        # Render Post-Processed Scene to Screen (Background Only)
+        self.game.post_processor.render()
+        
+        # --- UI RENDERING (On Top) ---
+        renderer = self.game.renderer
+        renderer.begin_frame(self.game.virtual_width, self.game.virtual_height, self.game.window.width, self.game.window.height)
+        
+        vw, vh = self.game.virtual_width, self.game.virtual_height
+        
+        # Dark Overlay (Rendered on top of bloom to dim it)
+        renderer.draw_rect(0, 0, vw, vh, (0.0, 0.0, 0.0, 0.7))
         
         cx = vw // 2
         cy = vh // 2
         
         # Title "GAME OVER"
-        title = "GAME OVER"
+        title = self.game.localization.get("game_over")
         tw, th = self.title_renderer.measure_text(title)
-        self.title_renderer.render_text(title, cx - tw // 2, cy - 200, (255, 50, 50))
+        self.title_renderer.render_text(renderer, title, cx - tw // 2, cy - 200, (255, 50, 50), outline_color=(100, 0, 0), outline_width=4)
         
         # Stats Panel
         panel_y = cy - 100
         spacing = 50
         
         # Score
-        score_text = f"SCORE: {self.score}"
+        score_lbl = self.game.localization.get("score")
+        score_text = f"{score_lbl}: {int(self.score)}"
         sw, sh = self.stats_renderer.measure_text(score_text)
-        self.stats_renderer.render_text(score_text, cx - sw // 2, panel_y, (255, 255, 255))
+        self.stats_renderer.render_text(renderer, score_text, cx - sw // 2, panel_y, (255, 255, 255))
+        
+        # High Score
+        high_score_text = f"HIGH SCORE: {int(self.game.high_score)}"
+        hsw, hsh = self.stats_renderer.measure_text(high_score_text)
+        self.stats_renderer.render_text(renderer, high_score_text, cx - hsw // 2, panel_y - 40, (255, 215, 0)) # Gold color
         
         # Wave
-        wave_text = f"WAVE REACHED: {self.wave}"
+        wave_lbl = self.game.localization.get("wave_reached")
+        wave_text = f"{wave_lbl}: {self.wave}"
         ww_text, wh_text = self.stats_renderer.measure_text(wave_text)
-        self.stats_renderer.render_text(wave_text, cx - ww_text // 2, panel_y + spacing, (200, 200, 255))
+        self.stats_renderer.render_text(renderer, wave_text, cx - ww_text // 2, panel_y + spacing, (200, 200, 255))
         
         # Boss Status
-        boss_text = "BOSS DEFEATED!" if self.boss_beaten else "BOSS SURVIVED"
+        boss_key = "boss_defeated" if self.boss_beaten else "boss_survived"
+        boss_text = self.game.localization.get(boss_key)
         color = (100, 255, 100) if self.boss_beaten else (255, 100, 100)
         bw, bh = self.stats_renderer.measure_text(boss_text)
-        self.stats_renderer.render_text(boss_text, cx - bw // 2, panel_y + spacing * 2, color)
+        self.stats_renderer.render_text(renderer, boss_text, cx - bw // 2, panel_y + spacing * 2, color)
         
         # Buttons
         for element in self.ui_elements:
-            element.render()
+            element.render(renderer)
             
-        self.particle_system.render()
-        
-        glPopMatrix()
+        renderer.end_frame()

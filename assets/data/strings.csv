@@ -13,6 +13,25 @@ difficulty,Difficulty,Dificultad
 easy,Easy,Fácil
 medium,Medium,Medio
 hard,Hard,Difícil
+extreme,Extreme,Extremo
 boss_wave,BOSS WAVE!,¡OLEADA DE JEFE!
 game_over,GAME OVER,JUEGO TERMINADO
 win,YOU WIN!,¡GANASTE!
+music_vol,Music Volume,Volumen Música
+sfx_vol,SFX Volume,Volumen Efectos
+back,Back,Atrás
+apply,Apply,Aplicar
+show_fps,Show FPS,Mostrar FPS
+unlimited,Unlimited,Ilimitado
+restart_required,! Restart Required !,! Reinicio Requerido !
+desc_easy,For beginners. Balanced challenge.,Para principiantes. Reto equilibrado.
+desc_medium,For veterans. More enemies.,Para veteranos. Más enemigos.
+desc_hard,For experts. Bullet hell awaits.,Para expertos. Infierno de balas.
+desc_extreme,NIGHTMARE. Good luck.,PESADILLA. Buena suerte.
+desc_back,Return to main menu.,Volver al menú principal.
+score,SCORE,PUNTUACIÓN
+wave_reached,WAVE REACHED,OLEADA ALCANZADA
+boss_defeated,BOSS DEFEATED!,¡JEFE DERROTADO!
+boss_survived,BOSS SURVIVED,JEFE SOBREVIVIÓ
+retry,RETRY,REINTENTAR
+paused,PAUSED,PAUSA

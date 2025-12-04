@@ -29,6 +29,10 @@ class WarpBackground:
         glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
         glBufferData(GL_ARRAY_BUFFER, self.vertices.nbytes, self.vertices, GL_STATIC_DRAW)
 
+    def resize(self, width, height):
+        self.width = width
+        self.height = height
+
     def render(self, time):
         self.shader.use()
         self.shader.set_uniform_1f("time", time)

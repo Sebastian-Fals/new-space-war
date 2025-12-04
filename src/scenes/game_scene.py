@@ -3,168 +3,24 @@ from src.scenes.scene_manager import Scene
 from src.graphics.starfield import Starfield
 from src.entities.player import Player
 from src.entities.bullet_manager import BulletManager
-from src.scenes.scene_manager import Scene
-from src.graphics.starfield import Starfield
-from src.entities.player import Player
-from src.entities.bullet_manager import BulletManager
-from src.core.wave_manager import WaveManager
-from src.graphics.particle_system import ParticleSystem
-from OpenGL.GL import *
-
-class GameScene(Scene):
-    def __init__(self, game):
-        super().__init__(game)
-        self.starfield = Starfield(game.virtual_width, game.virtual_height)
-        self.paused = False
-        self.time = 0
-        
-        self.particle_system = ParticleSystem()
-        
-        # Initialize other components
-        self.bullet_manager = BulletManager(self.particle_system)
-        self.player = Player(game.virtual_width // 2, game.virtual_height // 2, self.bullet_manager)
-        self.wave_manager = WaveManager(self)
-        self.wave_manager.game = self
-        
-        from src.graphics.text_renderer import TextRenderer
-        self.text_renderer = TextRenderer()
-        
-    def get_mouse_pos(self):
-        mx, my = pygame.mouse.get_pos()
-        
-        # Calculate scale and offset (same as in render)
-        vw, vh = self.game.virtual_width, self.game.virtual_height
-        ww, wh = self.game.window.width, self.game.window.height
-        
-        scale = min(ww / vw, wh / vh)
-        tx = (ww - vw * scale) / 2
-        ty = (wh - vh * scale) / 2
-        
-        # Transform mouse to virtual coords
-        vmx = (mx - tx) / scale
-        vmy = (my - ty) / scale
-        
-        return vmx, vmy
-
-    def handle_events(self, events):
-        for event in events:
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
-                    self.paused = not self.paused
-                
-                if self.paused:
-                    if event.key == pygame.K_q: # Quit to Menu
-                        from src.scenes.menu_scene import MenuScene
-                        self.game.scene_manager.set_scene(MenuScene(self.game))
-                    elif event.key == pygame.K_r: # Restart
-                        self.__init__(self.game)
-                        
-            if not self.paused:
-                if event.type == pygame.MOUSEBUTTONDOWN:
-                    if event.button == 1: # Left click
-                        self.player.shoot()
-
-    def update(self, dt):
-        if self.paused:
-            return
-            
-        self.time += dt
-        
-        # Update player with virtual mouse coordinates
-        vmx, vmy = self.get_mouse_pos()
-        self.player.update(dt, vmx, vmy)
-        
-        self.wave_manager.update(dt)
-        self.bullet_manager.update(dt)
-        self.particle_system.update(dt)
-        
-        # Collision Logic
-        
-        # Difficulty Multipliers
-        diff = getattr(self.game, 'difficulty', 'medium')
-        dmg_mult = 1.0
-        if diff == 'easy': dmg_mult = 0.5
-        elif diff == 'hard': dmg_mult = 1.5
-        
-        # Player Bullet -> Enemy
-        for b in self.bullet_manager.bullets:
-            if b["type"] == "player":
-                for e in self.wave_manager.enemies:
-                    if abs(b["x"] - e.x) < 32 and abs(b["y"] - e.y) < 32:
-                        e.active = False
-                        b["active"] = False
-                        self.game.score += 100
-                        
-        # Enemy Bullet -> Player
-        if self.player.invulnerable_timer <= 0:
-            player_hit = False
-            for b in self.bullet_manager.bullets:
-                if b["type"] == "enemy":
-                    if abs(b["x"] - self.player.x) < 16 and abs(b["y"] - self.player.y) < 16:
-                        self.player.hp -= 10 * dmg_mult
-                        b["active"] = False
-                        player_hit = True
-            
-            # Enemy Body -> Player
-            for e in self.wave_manager.enemies:
-                if abs(e.x - self.player.x) < 32 and abs(e.y - self.player.y) < 32:
-                    self.player.hp -= 20 * dmg_mult
-                    e.active = False # Enemy crashes
-                    player_hit = True
-                    
-            if player_hit:
-                self.player.invulnerable_timer = 1.0 # 1 second invulnerability
-                if self.player.hp <= 0:
-                    # Game Over
-                    print("GAME OVER")
-                    # For now restart
-                    self.__init__(self.game)
-                        
-        if self.wave_manager.boss:
-            boss = self.wave_manager.boss
-            for b in self.bullet_manager.bullets:
-                if b["type"] == "player":
-                     if abs(b["x"] - boss.x) < 50 and abs(b["y"] - boss.y) < 50:
-                        boss.hp -= 1
-                        b["active"] = False
-                        if boss.hp <= 0:
-                            boss.active = False
-                            self.game.score += 5000
-
-    def render(self):
-        # Calculate scale factors
-        vw, vh = self.game.virtual_width, self.game.virtual_height
-        ww, wh = self.game.window.width, self.game.window.height
-        
-        scale = min(ww / vw, wh / vh)
-        tx = (ww - vw * scale) / 2
-        ty = (wh - vh * scale) / 2
-        
-        glPushMatrix()
-        glTranslatef(tx, ty, 0)
-        glScalef(scale, scale, 1.0)
-        
-        # Render Starfield
-        self.starfield.render(self.time, (self.player.x, self.player.y))
-import pygame
-from src.scenes.scene_manager import Scene
-from src.graphics.starfield import Starfield
-from src.entities.player import Player
-from src.entities.bullet_manager import BulletManager
 from src.core.wave_manager import WaveManager
 from src.graphics.particle_system import ParticleSystem
 from src.ui.button import Button
+from src.utils.spatial_grid import SpatialGrid
 from OpenGL.GL import *
 import random
 
 class GameScene(Scene):
     def __init__(self, game):
         super().__init__(game)
+        self.game.score = 0 # Reset score
+        self.game.audio_manager.play_music("game", force_restart=True)
         self.starfield = Starfield(game.virtual_width, game.virtual_height)
         self.paused = False
         self.time = 0
         
         self.particle_system = ParticleSystem()
+        self.grid = SpatialGrid(game.virtual_width, game.virtual_height, 100)
         
         # UI Juice
         self.display_score = 0
@@ -175,6 +31,7 @@ class GameScene(Scene):
         # Initialize other components
         self.bullet_manager = BulletManager(self.particle_system)
         self.player = Player(game.virtual_width // 2, game.virtual_height // 2, self.bullet_manager)
+        self.displayed_hp = self.player.hp # Initialize for lerp
         self.wave_manager = WaveManager(self)
         self.wave_manager.game = self
         
@@ -187,14 +44,18 @@ class GameScene(Scene):
         self.pause_buttons = []
         self.init_pause_menu()
         
+        # Hide mouse and grab input
+        pygame.mouse.set_visible(False)
+        pygame.event.set_grab(True)
+        
     def init_pause_menu(self):
         # Create buttons with wrapped callbacks for effects
         def wrap(cb):
             return lambda: self.on_button_click(None, cb) 
             
-        self.btn_resume = Button(0, 0, 200, 50, "RESUME", None, self.text_renderer)
-        self.btn_restart = Button(0, 0, 200, 50, "RESTART", None, self.text_renderer)
-        self.btn_quit = Button(0, 0, 200, 50, "QUIT", None, self.text_renderer)
+        self.btn_resume = Button(0, 0, 200, 50, self.game.localization.get("resume").upper(), None, self.text_renderer)
+        self.btn_restart = Button(0, 0, 200, 50, self.game.localization.get("restart").upper(), None, self.text_renderer)
+        self.btn_quit = Button(0, 0, 200, 50, self.game.localization.get("main_menu").upper(), None, self.text_renderer)
         
         self.pause_buttons = [self.btn_resume, self.btn_restart, self.btn_quit]
         
@@ -256,30 +117,24 @@ class GameScene(Scene):
 
     def toggle_pause(self):
         self.paused = not self.paused
+        if self.paused:
+            pygame.mouse.set_visible(True)
+            pygame.event.set_grab(False)
+        else:
+            pygame.mouse.set_visible(False)
+            pygame.event.set_grab(True)
         
     def restart_game(self):
         self.__init__(self.game)
         
     def quit_to_menu(self):
+        pygame.mouse.set_visible(True)
+        pygame.event.set_grab(False)
         from src.scenes.menu_scene import MenuScene
         self.game.scene_manager.set_scene(MenuScene(self.game))
 
     def get_mouse_pos(self):
-        mx, my = pygame.mouse.get_pos()
-        
-        # Calculate scale and offset (same as in render)
-        vw, vh = self.game.virtual_width, self.game.virtual_height
-        ww, wh = self.game.window.width, self.game.window.height
-        
-        scale = min(ww / vw, wh / vh)
-        tx = (ww - vw * scale) / 2
-        ty = (wh - vh * scale) / 2
-        
-        # Transform mouse to virtual coords
-        vmx = (mx - tx) / scale
-        vmy = (my - ty) / scale
-        
-        return vmx, vmy
+        return self.game.input_manager.get_mouse_pos()
 
     def handle_events(self, events):
         # Always handle resize/quit
@@ -325,11 +180,21 @@ class GameScene(Scene):
         # Score Pulse Decay
         self.score_scale += (1.0 - self.score_scale) * 5 * dt
         
+        # Health Bar Lerp
+        hp_diff = self.player.hp - self.displayed_hp
+        if abs(hp_diff) > 0.1:
+            self.displayed_hp += hp_diff * 5 * dt
+        else:
+            self.displayed_hp = self.player.hp
+        
         # Screen Shake
         if self.shake_timer > 0:
             self.shake_timer -= dt
             if self.shake_timer <= 0:
                 self.shake_magnitude = 0
+        
+        # Store Player Previous Position for CCD
+        player_prev_x, player_prev_y = self.player.x, self.player.y
         
         # Update player with virtual mouse coordinates
         vmx, vmy = self.get_mouse_pos()
@@ -344,61 +209,142 @@ class GameScene(Scene):
         # Difficulty Multipliers
         diff = getattr(self.game, 'difficulty', 'medium')
         dmg_mult = 1.0
-        if diff == 'easy': dmg_mult = 1.0
-        elif diff == 'medium': dmg_mult = 1.5
-        elif diff == 'hard': dmg_mult = 2.0
-        elif diff == 'extreme': dmg_mult = 3.0
+        if diff == 'easy': dmg_mult = 0.5
+        elif diff == 'hard': dmg_mult = 1.5
         
-        # Player Bullet -> Enemy
-        for b in self.bullet_manager.bullets:
-            if b["type"] == "player":
-                for e in self.wave_manager.enemies:
-                    if abs(b["x"] - e.x) < 32 and abs(b["y"] - e.y) < 32:
+        # Update Spatial Grid
+        self.grid.clear()
+        for e in self.wave_manager.enemies:
+            if e.active:
+                self.grid.insert(e)
+        
+        # Helper for Line-Circle Intersection
+        def line_intersects_circle(p1, p2, center, radius):
+            # p1, p2: (x, y) tuples
+            # center: (cx, cy) tuple
+            # radius: float
+            x1, y1 = p1
+            x2, y2 = p2
+            cx, cy = center
+            
+            dx, dy = x2 - x1, y2 - y1
+            if dx == 0 and dy == 0:
+                return (x1 - cx)**2 + (y1 - cy)**2 <= radius**2
+                
+            # t = ((cx - x1) * dx + (cy - y1) * dy) / (dx*dx + dy*dy)
+            t = ((cx - x1) * dx + (cy - y1) * dy) / (dx*dx + dy*dy)
+            t = max(0, min(1, t)) # Clamp to segment
+            
+            closest_x = x1 + t * dx
+            closest_y = y1 + t * dy
+            
+            dist_sq = (closest_x - cx)**2 + (closest_y - cy)**2
+            return dist_sq <= radius**2
+
+        # Player Bullet -> Enemy (CCD)
+        # Iterate active player bullets (numpy)
+        for i in range(self.bullet_manager.p_count):
+            bx = self.bullet_manager.p_data[i, 0]
+            by = self.bullet_manager.p_data[i, 1]
+            bdx = self.bullet_manager.p_data[i, 2]
+            bdy = self.bullet_manager.p_data[i, 3]
+            
+            # Previous position
+            prev_bx = bx - bdx * dt
+            prev_by = by - bdy * dt
+            
+            # Query grid around the segment bounding box
+            min_x, max_x = min(prev_bx, bx), max(prev_bx, bx)
+            min_y, max_y = min(prev_by, by), max(prev_by, by)
+            
+            # Simplified query: just query around current pos + margin?
+            # Or query around midpoint?
+            # Let's query around current pos with a larger radius to catch fast movers?
+            # Or just query standard size but check intersection.
+            # Grid query is coarse anyway.
+            potential_hits = self.grid.query(bx, by, 64, 64) # Increased range
+            
+            for e in potential_hits:
+                if e.active:
+                    # Check CCD
+                    if line_intersects_circle((prev_bx, prev_by), (bx, by), (e.x, e.y), 20): # Enemy radius ~20
                         e.active = False
-                        b["active"] = False
+                        self.bullet_manager.p_data[i, 1] = -1000 # Move offscreen to remove
                         self.game.score += 100
-                        self.score_scale = 1.5 # Pulse score
-                        self.trigger_shake(5, 0.2) # Shake screen
+                        self.score_scale = 1.5
+                        self.trigger_shake(5, 0.2)
+                        break # Bullet hits one enemy
                         
-        # Enemy Bullet -> Player
+        # Enemy Bullet -> Player (CCD)
         if self.player.invulnerable_timer <= 0:
             player_hit = False
-            for b in self.bullet_manager.bullets:
-                if b["type"] == "enemy":
-                    if abs(b["x"] - self.player.x) < 16 and abs(b["y"] - self.player.y) < 16:
-                        self.player.hp -= 10 * dmg_mult
-                        b["active"] = False
-                        player_hit = True
+            px, py = self.player.x, self.player.y
             
-            # Enemy Body -> Player
-            for e in self.wave_manager.enemies:
-                if abs(e.x - self.player.x) < 32 and abs(e.y - self.player.y) < 32:
-                    self.player.hp -= 20 * dmg_mult
-                    e.active = False # Enemy crashes
+            for i in range(self.bullet_manager.e_count):
+                bx = self.bullet_manager.e_data[i, 0]
+                by = self.bullet_manager.e_data[i, 1]
+                bdx = self.bullet_manager.e_data[i, 2]
+                bdy = self.bullet_manager.e_data[i, 3]
+                
+                prev_bx = bx - bdx * dt
+                prev_by = by - bdy * dt
+                
+                # Player radius ~15
+                if line_intersects_circle((prev_bx, prev_by), (bx, by), (px, py), self.player.hitbox_radius):
+                    self.player.hp -= 10 * dmg_mult
+                    self.bullet_manager.e_data[i, 1] = -1000 # Remove
                     player_hit = True
+            
+            # Enemy Body -> Player (CCD)
+            # Check intersection of Player Movement Segment with Enemy Circle
+            # Player moved from (player_prev_x, player_prev_y) to (px, py)
+            for e in self.wave_manager.enemies:
+                if e.active:
+                    # Check if Player path intersects Enemy
+                    # Also check if Enemy path intersects Player? (Both moving)
+                    # For simplicity, assume Enemy is static during frame relative to fast player?
+                    # Or just check distance.
+                    # Let's use CCD for player path vs Enemy Circle.
+                    if line_intersects_circle((player_prev_x, player_prev_y), (px, py), (e.x, e.y), 20 + self.player.hitbox_radius): # Combined radius (Enemy ~20)
+                        self.player.hp -= 40 * dmg_mult # Double damage (4x bullet)
+                        e.active = False # Enemy crashes/destroyed
+                        player_hit = True
+                        self.trigger_shake(20, 0.5) # Big shake
                     
             if player_hit:
                 self.player.invulnerable_timer = 1.0 # 1 second invulnerability
-                self.trigger_shake(10, 0.4) # Big shake on hit
+                self.trigger_shake(10, 0.4)
                 if self.player.hp <= 0:
                     # Game Over
+                    if self.game.score > self.game.high_score:
+                        self.game.high_score = self.game.score
+                        self.game.save_settings()
+                    
                     print("GAME OVER")
                     from src.scenes.game_over_scene import GameOverScene
                     self.game.scene_manager.set_scene(GameOverScene(self.game, self.game.score, self.wave_manager.wave, self.boss_beaten))
                         
         if self.wave_manager.boss:
             boss = self.wave_manager.boss
-            for b in self.bullet_manager.bullets:
-                if b["type"] == "player":
-                     if abs(b["x"] - boss.x) < 50 and abs(b["y"] - boss.y) < 50:
+            if boss.active:
+                for i in range(self.bullet_manager.p_count):
+                     bx = self.bullet_manager.p_data[i, 0]
+                     by = self.bullet_manager.p_data[i, 1]
+                     bdx = self.bullet_manager.p_data[i, 2]
+                     bdy = self.bullet_manager.p_data[i, 3]
+                     
+                     prev_bx = bx - bdx * dt
+                     prev_by = by - bdy * dt
+                     
+                     if line_intersects_circle((prev_bx, prev_by), (bx, by), (boss.x, boss.y), 50):
                         boss.hp -= 1
-                        b["active"] = False
+                        self.bullet_manager.p_data[i, 1] = -1000 # Remove
                         if boss.hp <= 0:
                             boss.active = False
                             self.boss_beaten = True
                             self.game.score += 5000
                             self.score_scale = 2.0
-                            self.trigger_shake(20, 1.0) # Massive shake on boss death
+                            self.trigger_shake(20, 1.0)
 
     def render(self):
         # Calculate scale factors
@@ -408,6 +354,28 @@ class GameScene(Scene):
         scale = min(ww / vw, wh / vh)
         tx = (ww - vw * scale) / 2
         ty = (wh - vh * scale) / 2
+        
+        # Setup Legacy Projection
+        glMatrixMode(GL_PROJECTION)
+        glLoadIdentity()
+        glOrtho(0, ww, wh, 0, -1, 1)
+        glMatrixMode(GL_MODELVIEW)
+        glLoadIdentity()
+        
+        # Scissor Test to clip legacy rendering to virtual viewport
+        glEnable(GL_SCISSOR_TEST)
+        glScissor(int(tx), int(ty), int(vw * scale), int(vh * scale))
+        
+        # --- POST PROCESSING START ---
+        # Capture World Rendering
+        self.game.post_processor.begin_capture()
+        
+        # We need to clear the FBO (it has its own clear color)
+        # But wait, begin_capture clears it.
+        # We need to setup projection for the FBO?
+        # The FBO is size of window.
+        # Legacy projection is setup for window size (0..ww, 0..wh).
+        # So rendering should work fine.
         
         glPushMatrix()
         glTranslatef(tx, ty, 0)
@@ -423,86 +391,115 @@ class GameScene(Scene):
         self.starfield.render(self.time, (self.player.x, self.player.y))
         
         # Render Entities
-        self.particle_system.render()
+        self.particle_system.render(scale)
         self.wave_manager.render()
         self.player.render()
         self.bullet_manager.render()
         
+        glPopMatrix()
+        
+        self.game.post_processor.end_capture()
+        # --- POST PROCESSING END ---
+        
+        glDisable(GL_SCISSOR_TEST)
+        
+        # Render Post-Processed Scene to Screen
+        # We might want to apply scissor here too if we want black bars?
+        # PostProcessor renders full screen quad.
+        # If we want letterboxing, we should render quad inside the viewport?
+        # Or just render full screen and let the black bars be black (cleared screen).
+        # But PostProcessor texture contains the whole window content (including black bars area if we cleared it black).
+        # Wait, we rendered to FBO with scissor test. So FBO has content only in viewport area.
+        # So rendering full screen quad of FBO texture will show the content correctly.
+        
+        self.game.post_processor.render()
+        
         # Render UI (Health Bar) - In Virtual Space (Scaled)
-        glDisable(GL_TEXTURE_2D)
-        glEnable(GL_BLEND)
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        # glDisable(GL_TEXTURE_2D)
+        # glEnable(GL_BLEND)
+        # glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        
+        renderer = self.game.renderer
+        renderer.begin_frame(self.game.virtual_width, self.game.virtual_height, self.game.window.width, self.game.window.height)
         
         # Health Bar - Top Left
         bar_x, bar_y = 20, 20
         bar_w, bar_h = 250, 25
         
         # Bar Background (Dark Grey)
-        glColor4f(0.1, 0.1, 0.1, 0.8)
-        glBegin(GL_QUADS)
-        glVertex2f(bar_x, bar_y)
-        glVertex2f(bar_x + bar_w, bar_y)
-        glVertex2f(bar_x + bar_w, bar_y + bar_h)
-        glVertex2f(bar_x, bar_y + bar_h)
-        glEnd()
+        renderer.draw_rect(bar_x, bar_y, bar_w, bar_h, (0.1, 0.1, 0.1, 0.8))
         
         # Health Fill (Gradient Green to Red)
-        hp_percent = max(0, self.player.hp / self.player.max_hp)
+        hp_percent = max(0, self.displayed_hp / self.player.max_hp)
         fill_w = bar_w * hp_percent
         
-        # Color based on HP
-        if hp_percent > 0.6:
-            glColor4f(0.0, 1.0, 0.2, 1.0) # Green
-        elif hp_percent > 0.3:
-            glColor4f(1.0, 1.0, 0.0, 1.0) # Yellow
+        # Smooth Color Lerp (Red -> Yellow -> Green)
+        if hp_percent > 0.5:
+            # Yellow to Green (0.5 to 1.0)
+            t = (hp_percent - 0.5) * 2
+            # Yellow (1, 1, 0) -> Green (0, 1, 0.2)
+            r = 1.0 * (1 - t) + 0.0 * t
+            g = 1.0 # Both are 1.0
+            b = 0.0 * (1 - t) + 0.2 * t
+            color = (r, g, b, 1.0)
         else:
-            glColor4f(1.0, 0.0, 0.0, 1.0) # Red
+            # Red to Yellow (0.0 to 0.5)
+            t = hp_percent * 2
+            # Red (1, 0, 0) -> Yellow (1, 1, 0)
+            r = 1.0
+            g = 0.0 * (1 - t) + 1.0 * t
+            b = 0.0
+            color = (r, g, b, 1.0)
             
-        glBegin(GL_QUADS)
-        glVertex2f(bar_x, bar_y)
-        glVertex2f(bar_x + fill_w, bar_y)
-        glVertex2f(bar_x + fill_w, bar_y + bar_h)
-        glVertex2f(bar_x, bar_y + bar_h)
-        glEnd()
+        renderer.draw_rect(bar_x, bar_y, fill_w, bar_h, color)
         
         # Bar Border (White)
-        glLineWidth(2)
-        glColor4f(1.0, 1.0, 1.0, 1.0)
-        glBegin(GL_LINE_LOOP)
-        glVertex2f(bar_x, bar_y)
-        glVertex2f(bar_x + bar_w, bar_y)
-        glVertex2f(bar_x + bar_w, bar_y + bar_h)
-        glVertex2f(bar_x, bar_y + bar_h)
-        glEnd()
+        # renderer.draw_rect_outline(bar_x, bar_y, bar_w, bar_h, (1.0, 1.0, 1.0, 1.0), 2)
+        # Simulate border with larger rect behind? No, we are drawing on top.
+        # Draw 4 lines or just skip border for now?
+        # Let's skip border or implement draw_rect_outline in Renderer2D later.
+        # For now, just draw a slightly larger white rect behind?
+        # But we already drew background.
+        # Let's draw 4 thin rects for border.
+        border_thickness = 2
+        border_color = (1.0, 1.0, 1.0, 1.0)
+        # Top
+        renderer.draw_rect(bar_x, bar_y, bar_w, border_thickness, border_color)
+        # Bottom
+        renderer.draw_rect(bar_x, bar_y + bar_h - border_thickness, bar_w, border_thickness, border_color)
+        # Left
+        renderer.draw_rect(bar_x, bar_y, border_thickness, bar_h, border_color)
+        # Right
+        renderer.draw_rect(bar_x + bar_w - border_thickness, bar_y, border_thickness, bar_h, border_color)
         
         # Score Panel with Pulse
-        score_text = f"SCORE: {int(self.display_score)}"
+        score_lbl = self.game.localization.get("score")
+        score_text = f"{score_lbl}: {int(self.display_score)}"
         sw, sh = self.text_renderer.measure_text(score_text)
         panel_x = 20
         panel_y = 60
         
         # Score Background
-        glColor4f(0.0, 0.0, 0.0, 0.5)
-        glBegin(GL_QUADS)
-        glVertex2f(panel_x - 5, panel_y - 5)
-        glVertex2f(panel_x + sw + 15, panel_y - 5)
-        glVertex2f(panel_x + sw + 15, panel_y + sh + 5)
-        glVertex2f(panel_x - 5, panel_y + sh + 5)
-        glEnd()
+        renderer.draw_rect(panel_x - 5, panel_y - 5, sw + 20, sh + 10, (0.0, 0.0, 0.0, 0.5))
         
         # Render Score Text with Scaling
-        glPushMatrix()
-        # Center of scaling
-        scx = panel_x + sw / 2
-        scy = panel_y + sh / 2
-        glTranslatef(scx, scy, 0)
-        glScalef(self.score_scale, self.score_scale, 1.0)
-        glTranslatef(-scx, -scy, 0)
+        # Renderer2D doesn't support scaling text yet (except via font size or separate draw calls).
+        # But we can use the model matrix in Renderer2D if we expose it?
+        # Or just ignore scaling for now?
+        # The scaling is for "juice" (pulse effect).
+        # TextRenderer uses Renderer2D.draw_texture.
+        # Renderer2D.draw_texture draws a quad.
+        # We can implement scaling in TextRenderer or Renderer2D.
+        # For now, let's just render without scaling to avoid complexity, or implement a simple scale in TextRenderer?
+        # TextRenderer.render_text calls renderer.draw_texture.
+        # We can add a scale parameter to render_text?
+        # Let's just render it normally for now.
         
-        self.text_renderer.render_text(score_text, panel_x, panel_y, (255, 255, 255))
-        glPopMatrix()
+        self.text_renderer.render_text(renderer, score_text, panel_x, panel_y, (255, 255, 255))
         
         # Wave UI
+        wave_lbl = self.game.localization.get("wave_reached").replace("REACHED", "").strip() # Reuse key or just "WAVE"
+        # Actually let's use a simple "WAVE" if possible, but for now reuse
         wave_text = f"WAVE {self.wave_manager.wave}"
         
         # Calculate target badge position (Top Right)
@@ -565,15 +562,8 @@ class GameScene(Scene):
                  current_color = (1.0, 1.0, 1.0, 1.0) # Back to white
                  
              # Render Wave Text
-             glPushMatrix()
-             # Scale around center of text
-             text_cx = current_x + tw / 2
-             text_cy = current_y + th / 2
-             glTranslatef(text_cx, text_cy, 0)
-             glScalef(current_scale, current_scale, 1.0)
-             glTranslatef(-text_cx, -text_cy, 0)
-             
-             self.text_renderer.render_text(wave_text, current_x, current_y, current_color)
+             # Ignoring scale for now
+             self.text_renderer.render_text(renderer, wave_text, current_x, current_y, current_color)
              
              if show_alert:
                  # Render "GET READY" below
@@ -581,46 +571,28 @@ class GameScene(Scene):
                  aw, ah = self.text_renderer.measure_text(alert_text)
                  # Pulse alpha
                  alpha = (math.sin(t * 10) + 1) / 2 * 0.5 + 0.5
-                 self.text_renderer.render_text(alert_text, cx - aw // 2, cy + 60, (1.0, 0.2, 0.2, alpha))
-                 
-             glPopMatrix()
+                 self.text_renderer.render_text(renderer, alert_text, cx - aw // 2, cy + 60, (1.0, 0.2, 0.2, alpha))
              
         else:
              # Persistent Badge (Top Right)
              
              # Badge Background
-             glColor4f(0.2, 0.2, 0.8, 0.6) # Blueish
-             glBegin(GL_QUADS)
-             glVertex2f(badge_x, badge_y)
-             glVertex2f(badge_x + badge_w, badge_y)
-             glVertex2f(badge_x + badge_w, badge_y + badge_h)
-             glVertex2f(badge_x, badge_y + badge_h)
-             glEnd()
+             renderer.draw_rect(badge_x, badge_y, badge_w, badge_h, (0.2, 0.2, 0.8, 0.6))
              
              # Badge Border
-             glLineWidth(2)
-             glColor4f(0.5, 0.5, 1.0, 1.0)
-             glBegin(GL_LINE_LOOP)
-             glVertex2f(badge_x, badge_y)
-             glVertex2f(badge_x + badge_w, badge_y)
-             glVertex2f(badge_x + badge_w, badge_y + badge_h)
-             glVertex2f(badge_x, badge_y + badge_h)
-             glEnd()
+             renderer.draw_rect(badge_x, badge_y, badge_w, 2, (0.5, 0.5, 1.0, 1.0)) # Top
+             renderer.draw_rect(badge_x, badge_y + badge_h - 2, badge_w, 2, (0.5, 0.5, 1.0, 1.0)) # Bottom
+             renderer.draw_rect(badge_x, badge_y, 2, badge_h, (0.5, 0.5, 1.0, 1.0)) # Left
+             renderer.draw_rect(badge_x + badge_w - 2, badge_y, 2, badge_h, (0.5, 0.5, 1.0, 1.0)) # Right
              
-             self.text_renderer.render_text(wave_text, badge_x + 10, badge_y + 5, (255, 255, 255))
+             self.text_renderer.render_text(renderer, wave_text, badge_x + 10, badge_y + 5, (255, 255, 255))
              
         if self.paused:
             # Draw Pause Overlay
             # Fullscreen dark overlay
-            glDisable(GL_TEXTURE_2D)
-            glEnable(GL_BLEND)
-            glColor4f(0.0, 0.0, 0.0, 0.7)
-            glBegin(GL_QUADS)
-            glVertex2f(0, 0)
-            glVertex2f(self.game.virtual_width, 0)
-            glVertex2f(self.game.virtual_width, self.game.virtual_height)
-            glVertex2f(0, self.game.virtual_height)
-            glEnd()
+            # glDisable(GL_TEXTURE_2D)
+            # glEnable(GL_BLEND)
+            renderer.draw_rect(0, 0, self.game.virtual_width, self.game.virtual_height, (0.0, 0.0, 0.0, 0.7))
             
             # Panel Background
             cx, cy = self.game.virtual_width // 2, self.game.virtual_height // 2
@@ -628,31 +600,38 @@ class GameScene(Scene):
             panel_x = cx - panel_w // 2
             panel_y = cy - panel_h // 2
             
-            glColor4f(0.0, 0.1, 0.2, 0.9) # Dark Blue
-            glBegin(GL_QUADS)
-            glVertex2f(panel_x, panel_y)
-            glVertex2f(panel_x + panel_w, panel_y)
-            glVertex2f(panel_x + panel_w, panel_y + panel_h)
-            glVertex2f(panel_x, panel_y + panel_h)
-            glEnd()
+            # Panel Background (Gradient)
+            # renderer.draw_chamfered_rect(panel_x, panel_y, panel_w, panel_h, (0.05, 0.1, 0.25, 0.9), radius=10, gradient_bot=(0.02, 0.05, 0.15, 0.95))
+            # Renderer2D doesn't support gradient_bot yet in draw_chamfered_rect call?
+            # Wait, I implemented draw_chamfered_rect in Renderer2D but I didn't check if it supports gradient.
+            # I implemented it with a single color.
+            # So let's just use single color for now.
+            renderer.draw_chamfered_rect(panel_x, panel_y, panel_w, panel_h, (0.05, 0.1, 0.25, 0.9), radius=10)
             
-            # Panel Border
-            glLineWidth(2)
-            glColor4f(0.0, 0.8, 1.0, 1.0) # Cyan
-            glBegin(GL_LINE_LOOP)
-            glVertex2f(panel_x, panel_y)
-            glVertex2f(panel_x + panel_w, panel_y)
-            glVertex2f(panel_x + panel_w, panel_y + panel_h)
-            glVertex2f(panel_x, panel_y + panel_h)
-            glEnd()
+            # Panel Border (Glowing Cyan)
+            renderer.draw_chamfered_rect(panel_x - 3, panel_y - 3, panel_w + 6, panel_h + 6, (0.0, 0.8, 1.0, 0.8), radius=10)
+            renderer.draw_chamfered_rect(panel_x, panel_y, panel_w, panel_h, (0.05, 0.1, 0.25, 0.9), radius=10)
             
             # Title
-            title_text = "PAUSED"
+            title_text = self.game.localization.get("paused")
             tw, th = self.text_renderer.measure_text(title_text)
-            self.text_renderer.render_text(title_text, cx - tw // 2, panel_y + 40, (255, 255, 255))
+            self.text_renderer.render_text(renderer, title_text, cx - tw // 2, panel_y + 40, (255, 255, 255))
             
             # Buttons
             for btn in self.pause_buttons:
-                btn.render()
+                btn.render(renderer)
                 
-        glPopMatrix()
+        renderer.end_frame()
+        
+        # glPopMatrix() # Removed because we are not using glPushMatrix for UI anymore (Renderer2D handles it)
+        # But wait, we used glPushMatrix at start of render() for the legacy world rendering.
+        # We need to pop it!
+        # But we called renderer.begin_frame() which sets up its own projection.
+        # Does renderer.end_frame() restore the previous projection? No.
+        # But we are at the end of render().
+        # The legacy glPopMatrix corresponds to the glPushMatrix at line 285.
+        # We should pop it to be clean, although next frame will reset.
+        # However, Renderer2D uses a shader, so the fixed function matrix stack is ignored during Renderer2D pass.
+        # But we should pop it for correctness if we are mixing.
+        
+        # glPopMatrix() # Removed extra pop

@@ -19,11 +19,11 @@ class DifficultyScene(Scene):
         
         self.description = ""
         self.descriptions = {
-            'easy': "For beginners. Balanced challenge.",
-            'medium': "For veterans. More enemies, faster bullets.",
-            'hard': "For experts. Bullet hell awaits.",
-            'extreme': "NIGHTMARE. Good luck, you'll need it.",
-            'back': "Return to main menu."
+            'easy': "desc_easy",
+            'medium': "desc_medium",
+            'hard': "desc_hard",
+            'extreme': "desc_extreme",
+            'back': "desc_back"
         }
         
         self.ui_elements = []
@@ -47,33 +47,27 @@ class DifficultyScene(Scene):
         spacing = 70
         
         # Easy Button
-        btn_easy = Button(cx - btn_w // 2, start_y, btn_w, btn_h, "EASY", lambda: self.on_button_click('easy', 0), self.text_renderer)
+        btn_easy = Button(cx - btn_w // 2, start_y, btn_w, btn_h, self.game.localization.get("easy").upper(), lambda: self.on_button_click('easy', 0), self.text_renderer)
         self.ui_elements.append(btn_easy)
         
         # Medium Button
-        btn_med = Button(cx - btn_w // 2, start_y + spacing, btn_w, btn_h, "MEDIUM", lambda: self.on_button_click('medium', 1), self.text_renderer)
+        btn_med = Button(cx - btn_w // 2, start_y + spacing, btn_w, btn_h, self.game.localization.get("medium").upper(), lambda: self.on_button_click('medium', 1), self.text_renderer)
         self.ui_elements.append(btn_med)
         
         # Hard Button
-        btn_hard = Button(cx - btn_w // 2, start_y + spacing * 2, btn_w, btn_h, "HARD", lambda: self.on_button_click('hard', 2), self.text_renderer)
+        btn_hard = Button(cx - btn_w // 2, start_y + spacing * 2, btn_w, btn_h, self.game.localization.get("hard").upper(), lambda: self.on_button_click('hard', 2), self.text_renderer)
         self.ui_elements.append(btn_hard)
         
         # Extreme Button
-        btn_extreme = Button(cx - btn_w // 2, start_y + spacing * 3, btn_w, btn_h, "EXTREME", lambda: self.on_button_click('extreme', 3), self.text_renderer)
+        btn_extreme = Button(cx - btn_w // 2, start_y + spacing * 3, btn_w, btn_h, self.game.localization.get("extreme").upper(), lambda: self.on_button_click('extreme', 3), self.text_renderer)
         self.ui_elements.append(btn_extreme)
         
         # Back Button
-        btn_back = Button(cx - btn_w // 2, self.panel_y + 520, btn_w, btn_h, "BACK", lambda: self.on_button_click('back', 4), self.text_renderer)
+        btn_back = Button(cx - btn_w // 2, self.panel_y + 520, btn_w, btn_h, self.game.localization.get("back").upper(), lambda: self.on_button_click('back', 4), self.text_renderer)
         self.ui_elements.append(btn_back)
             
     def get_mouse_pos(self):
-        mx, my = pygame.mouse.get_pos()
-        vw, vh = self.game.virtual_width, self.game.virtual_height
-        ww, wh = self.game.window.width, self.game.window.height
-        scale = min(ww / vw, wh / vh)
-        tx = (ww - vw * scale) / 2
-        ty = (wh - vh * scale) / 2
-        return (mx - tx) / scale, (my - ty) / scale
+        return self.game.input_manager.get_mouse_pos()
         
     def on_button_click(self, option, idx):
         # Get button dimensions
@@ -134,7 +128,7 @@ class DifficultyScene(Scene):
                 # Map index to option key
                 keys = ['easy', 'medium', 'hard', 'extreme', 'back']
                 if i < len(keys):
-                    self.description = self.descriptions[keys[i]]
+                    self.description = self.game.localization.get(self.descriptions[keys[i]])
 
     def update(self, dt):
         self.particle_system.update(dt)
@@ -146,57 +140,61 @@ class DifficultyScene(Scene):
                 self.pending_action = None
 
     def render(self):
+        # --- POST PROCESSING START ---
+        self.game.post_processor.begin_capture()
+        
+        # Render Background (Warp Nebula)
+        glMatrixMode(GL_PROJECTION)
+        glLoadIdentity()
+        glOrtho(0, self.game.window.width, self.game.window.height, 0, -1, 1)
+        glMatrixMode(GL_MODELVIEW)
+        glLoadIdentity()
+        
+        # Calculate Scissor Rect
         vw, vh = self.game.virtual_width, self.game.virtual_height
         ww, wh = self.game.window.width, self.game.window.height
         scale = min(ww / vw, wh / vh)
         tx = (ww - vw * scale) / 2
         ty = (wh - vh * scale) / 2
         
-        # Render Background (Warp Nebula)
+        glEnable(GL_SCISSOR_TEST)
+        glScissor(int(tx), int(ty), int(vw * scale), int(vh * scale))
+        
         self.game.warp_bg.render(self.game.global_time)
         
-        glPushMatrix()
-        glTranslatef(tx, ty, 0)
-        glScalef(scale, scale, 1.0)
+        glDisable(GL_SCISSOR_TEST)
         
-        glDisable(GL_TEXTURE_2D)
+        self.game.post_processor.end_capture()
+        # --- POST PROCESSING END ---
+        
+        # Render Post-Processed Scene to Screen (Background Only)
+        self.game.post_processor.render()
+        
+        # --- UI RENDERING (On Top) ---
+        renderer = self.game.renderer
+        renderer.begin_frame(self.game.virtual_width, self.game.virtual_height, self.game.window.width, self.game.window.height)
         
         # Draw Panel Background
-        glEnable(GL_BLEND)
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        # Panel Body (Gradient)
+        renderer.draw_chamfered_rect(self.panel_x, self.panel_y, self.panel_w, self.panel_h, (0.05, 0.1, 0.25, 0.9), radius=10, gradient_bot=(0.02, 0.05, 0.15, 0.95))
         
-        # Panel Body
-        glColor4f(0.05, 0.1, 0.2, 0.85)
-        glBegin(GL_QUADS)
-        glVertex2f(self.panel_x, self.panel_y)
-        glVertex2f(self.panel_x + self.panel_w, self.panel_y)
-        glVertex2f(self.panel_x + self.panel_w, self.panel_y + self.panel_h)
-        glVertex2f(self.panel_x, self.panel_y + self.panel_h)
-        glEnd()
-        
-        # Panel Border
-        glLineWidth(2)
-        glColor4f(0.3, 0.7, 1.0, 1.0)
-        glBegin(GL_LINE_LOOP)
-        glVertex2f(self.panel_x, self.panel_y)
-        glVertex2f(self.panel_x + self.panel_w, self.panel_y)
-        glVertex2f(self.panel_x + self.panel_w, self.panel_y + self.panel_h)
-        glVertex2f(self.panel_x, self.panel_y + self.panel_h)
-        glEnd()
+        # Panel Border (Glowing Cyan)
+        renderer.draw_chamfered_rect(self.panel_x - 3, self.panel_y - 3, self.panel_w + 6, self.panel_h + 6, (0.0, 0.8, 1.0, 0.8), radius=10)
+        renderer.draw_chamfered_rect(self.panel_x, self.panel_y, self.panel_w, self.panel_h, (0.05, 0.1, 0.25, 0.9), radius=10, gradient_bot=(0.02, 0.05, 0.15, 0.95))
         
         cx = 1280 // 2
-        title = "SELECT DIFFICULTY"
+        title = self.game.localization.get("difficulty").upper()
         tw, th = self.title_renderer.measure_text(title)
-        self.title_renderer.render_text(title, cx - tw // 2, self.panel_y + 30, (255, 255, 0))
+        self.title_renderer.render_text(renderer, title, cx - tw // 2, self.panel_y + 30, (255, 255, 0), outline_color=(255, 100, 0), outline_width=4)
         
         # Render Description
         if self.description:
             dw, dh = self.text_renderer.measure_text(self.description)
-            self.text_renderer.render_text(self.description, cx - dw // 2, self.panel_y + 450, (200, 255, 255))
+            self.text_renderer.render_text(renderer, self.description, cx - dw // 2, self.panel_y + 450, (200, 255, 255))
         
         for element in self.ui_elements:
-            element.render()
+            element.render(renderer)
             
-        self.particle_system.render()
+        renderer.end_frame()
             
-        glPopMatrix()
+        # self.particle_system.render()

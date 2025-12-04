@@ -11,22 +11,7 @@ from src.graphics.particle_system import ParticleSystem
 class MenuScene(Scene):
     def __init__(self, game):
         super().__init__(game)
-        self.options = ['play', 'options', 'exit']
-        # Use 'pixel' font hint (mapped to consolas in TextRenderer)
-        self.text_renderer = TextRenderer(font_name="pixel", size=48, antialias=False) 
-import pygame
-from src.scenes.scene_manager import Scene
-from src.graphics.text_renderer import TextRenderer
-from OpenGL.GL import *
-
-from src.ui.button import Button
-from src.graphics.warp_background import WarpBackground
-
-from src.graphics.particle_system import ParticleSystem
-
-class MenuScene(Scene):
-    def __init__(self, game):
-        super().__init__(game)
+        self.game.audio_manager.play_music("menu")
         self.options = ['play', 'options', 'exit']
         # Use 'pixel' font hint (mapped to consolas in TextRenderer)
         self.text_renderer = TextRenderer(font_name="pixel", size=48, antialias=False) 
@@ -38,6 +23,12 @@ class MenuScene(Scene):
         self.action_timer = 0.0
         
         self.ui_elements = []
+        self.ui_elements = []
+        
+        # Restore mouse visibility and release grab
+        pygame.mouse.set_visible(True)
+        pygame.event.set_grab(False)
+        
         self.recalculate_layout()
         
     def recalculate_layout(self):
@@ -55,25 +46,13 @@ class MenuScene(Scene):
             x = cx - btn_w // 2
             # Pass a wrapper to trigger particles AND action
             action = lambda o=opt, idx=i: self.on_button_click(o, idx)
-            btn = Button(x, y, btn_w, btn_h, opt.upper(), action, self.text_renderer)
+            # Use localization for display text
+            text = self.game.localization.get(opt).upper()
+            btn = Button(x, y, btn_w, btn_h, text, action, self.text_renderer)
             self.ui_elements.append(btn)
 
     def get_mouse_pos(self):
-        mx, my = pygame.mouse.get_pos()
-        
-        # Calculate scale and offset
-        vw, vh = self.game.virtual_width, self.game.virtual_height
-        ww, wh = self.game.window.width, self.game.window.height
-        
-        scale = min(ww / vw, wh / vh)
-        tx = (ww - vw * scale) / 2
-        ty = (wh - vh * scale) / 2
-        
-        # Transform mouse to virtual coords
-        vmx = (mx - tx) / scale
-        vmy = (my - ty) / scale
-        
-        return vmx, vmy
+        return self.game.input_manager.get_mouse_pos()
             
     def on_button_click(self, option, idx):
         # Get button dimensions
@@ -140,34 +119,49 @@ class MenuScene(Scene):
             self.game.running = False
 
     def render(self):
-        # Calculate scale factors
+        # --- POST PROCESSING START ---
+        self.game.post_processor.begin_capture()
+        
+        # Render Background (Warp Nebula)
+        # Setup Legacy Projection
+        glMatrixMode(GL_PROJECTION)
+        glLoadIdentity()
+        glOrtho(0, self.game.window.width, self.game.window.height, 0, -1, 1)
+        glMatrixMode(GL_MODELVIEW)
+        glLoadIdentity()
+        
+        # Calculate Scissor Rect
         vw, vh = self.game.virtual_width, self.game.virtual_height
         ww, wh = self.game.window.width, self.game.window.height
-        
         scale = min(ww / vw, wh / vh)
         tx = (ww - vw * scale) / 2
         ty = (wh - vh * scale) / 2
         
-        # Render Background (Warp Nebula)
+        glEnable(GL_SCISSOR_TEST)
+        glScissor(int(tx), int(ty), int(vw * scale), int(vh * scale))
+        
         self.game.warp_bg.render(self.game.global_time)
         
-        glPushMatrix()
-        glTranslatef(tx, ty, 0)
-        glScalef(scale, scale, 1.0)
+        glDisable(GL_SCISSOR_TEST)
         
-        glDisable(GL_TEXTURE_2D)
+        self.game.post_processor.end_capture()
+        # --- POST PROCESSING END ---
+        
+        # Render Post-Processed Scene to Screen (Background Only)
+        self.game.post_processor.render()
+        
+        # --- UI RENDERING (On Top, Unaffected by Bloom) ---
+        self.game.renderer.begin_frame(self.game.virtual_width, self.game.virtual_height, self.game.window.width, self.game.window.height)
         
         # Render Title (Centered in Virtual Space)
         cx = 1280 // 2
         title_text = "DANMAKU"
         tw, th = self.title_renderer.measure_text(title_text)
-        self.title_renderer.render_text(title_text, cx - tw // 2, 100, (255, 255, 0), outline_color=(0, 0, 0), outline_width=4)
+        # Add a glow effect to title
+        self.title_renderer.render_text(self.game.renderer, title_text, cx - tw // 2, 100, (255, 255, 0), outline_color=(255, 100, 0), outline_width=4)
         
         # Render Buttons
         for element in self.ui_elements:
-            element.render()
+            element.render(self.game.renderer)
             
-        # Render Particles
-        self.particle_system.render()
-        
-        glPopMatrix()
+        self.game.renderer.end_frame()
