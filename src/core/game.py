@@ -8,7 +8,27 @@ from src.graphics.text_renderer import TextRenderer
 
 class Game:
     def __init__(self):
-        self.load_settings()
+        from src.core.settings_manager import SettingsManager
+        self.settings_manager = SettingsManager()
+        
+        # Apply settings
+        self.width = self.settings_manager.get("width")
+        self.height = self.settings_manager.get("height")
+        self.fps = self.settings_manager.get("fps")
+        self.language = self.settings_manager.get("language")
+        self.fullscreen = self.settings_manager.get("fullscreen")
+        self.show_fps = self.settings_manager.get("show_fps")
+        self.music_volume = self.settings_manager.get("music_volume")
+        self.sfx_volume = self.settings_manager.get("sfx_volume")
+        self.high_score = self.settings_manager.get("high_score")
+        self.msaa_enabled = self.settings_manager.get("msaa_enabled")
+        
+        # Graphics
+        self.use_bloom = self.settings_manager.get("use_bloom")
+        self.use_vignette = self.settings_manager.get("use_vignette")
+        self.use_chromatic = self.settings_manager.get("use_chromatic")
+        self.use_fxaa = self.settings_manager.get("use_fxaa")
+
         self.window = Window(self.width, self.height, "Danmaku Space War v2", fullscreen=self.fullscreen, msaa=self.msaa_enabled)
         # Sync dimensions with actual window size
         self.width = self.window.width
@@ -59,69 +79,24 @@ class Game:
         self.scene_manager = SceneManager(self)
         self.scene_manager.set_scene(MenuScene(self))
         
-    def load_settings(self):
-        default_settings = {
-            "fps": 60,
-            "width": 1280,
-            "height": 720,
-            "language": "en",
-            "fullscreen": False,
-            "show_fps": False,
-            "music_volume": 0.5,
-            "sfx_volume": 0.5,
-            "high_score": 0,
-            "use_bloom": True,
-            "use_vignette": True,
-            "use_chromatic": False,
-            "use_fxaa": False
-        }
-        try:
-            if os.path.exists("settings.json"):
-                with open("settings.json", "r") as f:
-                    saved = json.load(f)
-                    default_settings.update(saved)
-        except Exception as e:
-            print(f"Failed to load settings: {e}")
-            
-        self.fps = default_settings["fps"]
-        self.width = default_settings["width"]
-        self.height = default_settings["height"]
-        self.language = default_settings["language"]
-        self.fullscreen = default_settings["fullscreen"]
-        self.show_fps = default_settings["show_fps"]
-        self.music_volume = default_settings["music_volume"]
-        self.sfx_volume = default_settings["sfx_volume"]
-        self.high_score = default_settings["high_score"]
-        
-        # Graphics Settings
-        self.use_bloom = default_settings.get("use_bloom", True)
-        self.use_vignette = default_settings.get("use_vignette", True)
-        self.use_chromatic = default_settings.get("use_chromatic", False)
-        self.use_fxaa = default_settings.get("use_fxaa", False)
-        self.msaa_enabled = default_settings.get("msaa_enabled", True)
-
     def save_settings(self):
-        settings = {
-            "fps": self.fps,
-            "width": self.width,
-            "height": self.height,
-            "language": self.language,
-            "fullscreen": self.fullscreen,
-            "show_fps": self.show_fps,
-            "music_volume": self.audio_manager.music_volume,
-            "sfx_volume": self.audio_manager.sfx_volume,
-            "high_score": self.high_score,
-            "use_bloom": self.post_processor.use_bloom,
-            "use_vignette": self.post_processor.use_vignette,
-            "use_chromatic": self.post_processor.use_chromatic,
-            "use_fxaa": self.post_processor.use_fxaa,
-            "msaa_enabled": self.msaa_enabled
-        }
-        try:
-            with open("settings.json", "w") as f:
-                json.dump(settings, f, indent=4)
-        except Exception as e:
-            print(f"Failed to save settings: {e}")
+        # Update settings manager with current values
+        self.settings_manager.set("fps", self.fps)
+        self.settings_manager.set("width", self.width)
+        self.settings_manager.set("height", self.height)
+        self.settings_manager.set("language", self.language)
+        self.settings_manager.set("fullscreen", self.fullscreen)
+        self.settings_manager.set("show_fps", self.show_fps)
+        self.settings_manager.set("music_volume", self.audio_manager.music_volume)
+        self.settings_manager.set("sfx_volume", self.audio_manager.sfx_volume)
+        self.settings_manager.set("high_score", self.high_score)
+        self.settings_manager.set("use_bloom", self.post_processor.use_bloom)
+        self.settings_manager.set("use_vignette", self.post_processor.use_vignette)
+        self.settings_manager.set("use_chromatic", self.post_processor.use_chromatic)
+        self.settings_manager.set("use_fxaa", self.post_processor.use_fxaa)
+        self.settings_manager.set("msaa_enabled", self.msaa_enabled)
+        
+        self.settings_manager.save()
 
     def run(self):
         while self.running:

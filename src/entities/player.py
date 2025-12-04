@@ -48,57 +48,11 @@ class Player(Entity):
             self.shoot_timer = 0.1 # Fire rate
 
     def render(self):
-        from OpenGL.GL import (
-            glBegin, glEnd, glVertex2f, glColor3f, glColor4f, 
-            GL_TRIANGLES, GL_TRIANGLE_FAN, GL_BLEND, GL_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA,
-            glPushMatrix, glPopMatrix, glTranslatef, glRotatef, glScalef,
-            glEnable, glBlendFunc
-        )
-        
-        glPushMatrix()
-        glTranslatef(self.x, self.y, 0)
-        glRotatef(self.angle, 0, 0, 1)
-        
-        # Draw Ship (Triangle)
-        glColor3f(0.0, 1.0, 1.0) # Cyan
-        glBegin(GL_TRIANGLES)
-        glVertex2f(0, -20)  # Nose
-        glVertex2f(-15, 20) # Left Wing
-        glVertex2f(15, 20)  # Right Wing
-        glEnd()
-        
-        # Engine flame
-        glColor3f(1.0, 0.5, 0.0)
-        glBegin(GL_TRIANGLES)
-        glVertex2f(-5, 20)
-        glVertex2f(5, 20)
-        glVertex2f(0, 30 + (pygame.time.get_ticks() % 100) / 10.0) # Flicker
-        glEnd()
-        
-        # Hitbox Visualization (The "Core")
-        # Draw a small glowing diamond/circle at the center
-        glEnable(GL_BLEND)
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE)
-        
-        # Glow
-        glColor4f(0.0, 1.0, 1.0, 0.5)
-        glBegin(GL_TRIANGLE_FAN)
-        glVertex2f(0, 0)
-        for i in range(9): # 8 segments
-            import math
-            angle = i * math.pi * 2 / 8
-            glVertex2f(math.cos(angle) * 8, math.sin(angle) * 8)
-        glEnd()
-        
-        # Core
-        glColor4f(1.0, 1.0, 1.0, 1.0)
-        glBegin(GL_TRIANGLE_FAN)
-        glVertex2f(0, 0)
-        for i in range(9):
-            angle = i * math.pi * 2 / 8
-            glVertex2f(math.cos(angle) * 4, math.sin(angle) * 4)
-        glEnd()
-        
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-        
-        glPopMatrix()
+        # Rendering is now handled by PlayerRenderer, but we keep this for compatibility
+        # or we can remove it and call renderer directly in GameScene.
+        # For now, let's instantiate renderer here or pass it in?
+        # Better: GameScene should have the renderer and call it.
+        # But to keep GameScene simple, Player can hold its renderer?
+        # Or better: Player shouldn't know about rendering.
+        # Let's update GameScene to use PlayerRenderer.
+        pass

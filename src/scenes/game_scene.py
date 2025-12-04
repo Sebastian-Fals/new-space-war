@@ -35,10 +35,22 @@ class GameScene(Scene):
         self.wave_manager = WaveManager(self)
         self.wave_manager.game = self
         
+        from src.core.collision_manager import CollisionManager
+        self.collision_manager = CollisionManager(self)
+        
         self.boss_beaten = False
         
         from src.graphics.text_renderer import TextRenderer
         self.text_renderer = TextRenderer()
+        
+        from src.graphics.renderers.player_renderer import PlayerRenderer
+        self.player_renderer = PlayerRenderer()
+        
+        from src.graphics.renderers.bullet_renderer import BulletRenderer
+        self.bullet_renderer = BulletRenderer()
+        
+        from src.ui.game_hud import GameHUD
+        self.hud = GameHUD(self)
         
         # Pause Menu UI
         self.pause_buttons = []
@@ -204,147 +216,14 @@ class GameScene(Scene):
         self.bullet_manager.update(dt)
         self.particle_system.update(dt)
         
-        # Collision Logic
-        
-        # Difficulty Multipliers
-        diff = getattr(self.game, 'difficulty', 'medium')
-        dmg_mult = 1.0
-        if diff == 'easy': dmg_mult = 0.5
-        elif diff == 'hard': dmg_mult = 1.5
-        
         # Update Spatial Grid
         self.grid.clear()
         for e in self.wave_manager.enemies:
             if e.active:
                 self.grid.insert(e)
-        
-        # Helper for Line-Circle Intersection
-        def line_intersects_circle(p1, p2, center, radius):
-            # p1, p2: (x, y) tuples
-            # center: (cx, cy) tuple
-            # radius: float
-            x1, y1 = p1
-            x2, y2 = p2
-            cx, cy = center
-            
-            dx, dy = x2 - x1, y2 - y1
-            if dx == 0 and dy == 0:
-                return (x1 - cx)**2 + (y1 - cy)**2 <= radius**2
                 
-            # t = ((cx - x1) * dx + (cy - y1) * dy) / (dx*dx + dy*dy)
-            t = ((cx - x1) * dx + (cy - y1) * dy) / (dx*dx + dy*dy)
-            t = max(0, min(1, t)) # Clamp to segment
-            
-            closest_x = x1 + t * dx
-            closest_y = y1 + t * dy
-            
-            dist_sq = (closest_x - cx)**2 + (closest_y - cy)**2
-            return dist_sq <= radius**2
-
-        # Player Bullet -> Enemy (CCD)
-        # Iterate active player bullets (numpy)
-        for i in range(self.bullet_manager.p_count):
-            bx = self.bullet_manager.p_data[i, 0]
-            by = self.bullet_manager.p_data[i, 1]
-            bdx = self.bullet_manager.p_data[i, 2]
-            bdy = self.bullet_manager.p_data[i, 3]
-            
-            # Previous position
-            prev_bx = bx - bdx * dt
-            prev_by = by - bdy * dt
-            
-            # Query grid around the segment bounding box
-            min_x, max_x = min(prev_bx, bx), max(prev_bx, bx)
-            min_y, max_y = min(prev_by, by), max(prev_by, by)
-            
-            # Simplified query: just query around current pos + margin?
-            # Or query around midpoint?
-            # Let's query around current pos with a larger radius to catch fast movers?
-            # Or just query standard size but check intersection.
-            # Grid query is coarse anyway.
-            potential_hits = self.grid.query(bx, by, 64, 64) # Increased range
-            
-            for e in potential_hits:
-                if e.active:
-                    # Check CCD
-                    if line_intersects_circle((prev_bx, prev_by), (bx, by), (e.x, e.y), 20): # Enemy radius ~20
-                        e.active = False
-                        self.bullet_manager.p_data[i, 1] = -1000 # Move offscreen to remove
-                        self.game.score += 100
-                        self.score_scale = 1.5
-                        self.trigger_shake(5, 0.2)
-                        break # Bullet hits one enemy
-                        
-        # Enemy Bullet -> Player (CCD)
-        if self.player.invulnerable_timer <= 0:
-            player_hit = False
-            px, py = self.player.x, self.player.y
-            
-            for i in range(self.bullet_manager.e_count):
-                bx = self.bullet_manager.e_data[i, 0]
-                by = self.bullet_manager.e_data[i, 1]
-                bdx = self.bullet_manager.e_data[i, 2]
-                bdy = self.bullet_manager.e_data[i, 3]
-                
-                prev_bx = bx - bdx * dt
-                prev_by = by - bdy * dt
-                
-                # Player radius ~15
-                if line_intersects_circle((prev_bx, prev_by), (bx, by), (px, py), self.player.hitbox_radius):
-                    self.player.hp -= 10 * dmg_mult
-                    self.bullet_manager.e_data[i, 1] = -1000 # Remove
-                    player_hit = True
-            
-            # Enemy Body -> Player (CCD)
-            # Check intersection of Player Movement Segment with Enemy Circle
-            # Player moved from (player_prev_x, player_prev_y) to (px, py)
-            for e in self.wave_manager.enemies:
-                if e.active:
-                    # Check if Player path intersects Enemy
-                    # Also check if Enemy path intersects Player? (Both moving)
-                    # For simplicity, assume Enemy is static during frame relative to fast player?
-                    # Or just check distance.
-                    # Let's use CCD for player path vs Enemy Circle.
-                    if line_intersects_circle((player_prev_x, player_prev_y), (px, py), (e.x, e.y), 20 + self.player.hitbox_radius): # Combined radius (Enemy ~20)
-                        self.player.hp -= 40 * dmg_mult # Double damage (4x bullet)
-                        e.active = False # Enemy crashes/destroyed
-                        player_hit = True
-                        self.trigger_shake(20, 0.5) # Big shake
-                    
-            if player_hit:
-                self.player.invulnerable_timer = 1.0 # 1 second invulnerability
-                self.trigger_shake(10, 0.4)
-                if self.player.hp <= 0:
-                    # Game Over
-                    if self.game.score > self.game.high_score:
-                        self.game.high_score = self.game.score
-                        self.game.save_settings()
-                    
-                    print("GAME OVER")
-                    from src.scenes.game_over_scene import GameOverScene
-                    self.game.scene_manager.set_scene(GameOverScene(self.game, self.game.score, self.wave_manager.wave, self.boss_beaten))
-                        
-        if self.wave_manager.boss:
-            boss = self.wave_manager.boss
-            if boss.active:
-                for i in range(self.bullet_manager.p_count):
-                     bx = self.bullet_manager.p_data[i, 0]
-                     by = self.bullet_manager.p_data[i, 1]
-                     bdx = self.bullet_manager.p_data[i, 2]
-                     bdy = self.bullet_manager.p_data[i, 3]
-                     
-                     prev_bx = bx - bdx * dt
-                     prev_by = by - bdy * dt
-                     
-                     if line_intersects_circle((prev_bx, prev_by), (bx, by), (boss.x, boss.y), 50):
-                        boss.hp -= 1
-                        self.bullet_manager.p_data[i, 1] = -1000 # Remove
-                        if boss.hp <= 0:
-                            boss.active = False
-                            self.boss_beaten = True
-                            self.game.score += 5000
-                            self.score_scale = 2.0
-                            self.trigger_shake(20, 1.0)
+        # Collision Logic
+        self.collision_manager.update(dt)
 
     def render(self):
         # Calculate scale factors
@@ -393,8 +272,8 @@ class GameScene(Scene):
         # Render Entities
         self.particle_system.render(scale)
         self.wave_manager.render()
-        self.player.render()
-        self.bullet_manager.render()
+        self.player_renderer.render(self.player)
+        self.bullet_renderer.render(self.bullet_manager)
         
         glPopMatrix()
         
@@ -414,224 +293,12 @@ class GameScene(Scene):
         
         self.game.post_processor.render()
         
-        # Render UI (Health Bar) - In Virtual Space (Scaled)
-        # glDisable(GL_TEXTURE_2D)
-        # glEnable(GL_BLEND)
-        # glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        self.game.post_processor.render()
         
+        # Render UI (Health Bar) - In Virtual Space (Scaled)
         renderer = self.game.renderer
         renderer.begin_frame(self.game.virtual_width, self.game.virtual_height, self.game.window.width, self.game.window.height)
         
-        # Health Bar - Top Left
-        bar_x, bar_y = 20, 20
-        bar_w, bar_h = 250, 25
-        
-        # Bar Background (Dark Grey)
-        renderer.draw_rect(bar_x, bar_y, bar_w, bar_h, (0.1, 0.1, 0.1, 0.8))
-        
-        # Health Fill (Gradient Green to Red)
-        hp_percent = max(0, self.displayed_hp / self.player.max_hp)
-        fill_w = bar_w * hp_percent
-        
-        # Smooth Color Lerp (Red -> Yellow -> Green)
-        if hp_percent > 0.5:
-            # Yellow to Green (0.5 to 1.0)
-            t = (hp_percent - 0.5) * 2
-            # Yellow (1, 1, 0) -> Green (0, 1, 0.2)
-            r = 1.0 * (1 - t) + 0.0 * t
-            g = 1.0 # Both are 1.0
-            b = 0.0 * (1 - t) + 0.2 * t
-            color = (r, g, b, 1.0)
-        else:
-            # Red to Yellow (0.0 to 0.5)
-            t = hp_percent * 2
-            # Red (1, 0, 0) -> Yellow (1, 1, 0)
-            r = 1.0
-            g = 0.0 * (1 - t) + 1.0 * t
-            b = 0.0
-            color = (r, g, b, 1.0)
-            
-        renderer.draw_rect(bar_x, bar_y, fill_w, bar_h, color)
-        
-        # Bar Border (White)
-        # renderer.draw_rect_outline(bar_x, bar_y, bar_w, bar_h, (1.0, 1.0, 1.0, 1.0), 2)
-        # Simulate border with larger rect behind? No, we are drawing on top.
-        # Draw 4 lines or just skip border for now?
-        # Let's skip border or implement draw_rect_outline in Renderer2D later.
-        # For now, just draw a slightly larger white rect behind?
-        # But we already drew background.
-        # Let's draw 4 thin rects for border.
-        border_thickness = 2
-        border_color = (1.0, 1.0, 1.0, 1.0)
-        # Top
-        renderer.draw_rect(bar_x, bar_y, bar_w, border_thickness, border_color)
-        # Bottom
-        renderer.draw_rect(bar_x, bar_y + bar_h - border_thickness, bar_w, border_thickness, border_color)
-        # Left
-        renderer.draw_rect(bar_x, bar_y, border_thickness, bar_h, border_color)
-        # Right
-        renderer.draw_rect(bar_x + bar_w - border_thickness, bar_y, border_thickness, bar_h, border_color)
-        
-        # Score Panel with Pulse
-        score_lbl = self.game.localization.get("score")
-        score_text = f"{score_lbl}: {int(self.display_score)}"
-        sw, sh = self.text_renderer.measure_text(score_text)
-        panel_x = 20
-        panel_y = 60
-        
-        # Score Background
-        renderer.draw_rect(panel_x - 5, panel_y - 5, sw + 20, sh + 10, (0.0, 0.0, 0.0, 0.5))
-        
-        # Render Score Text with Scaling
-        # Renderer2D doesn't support scaling text yet (except via font size or separate draw calls).
-        # But we can use the model matrix in Renderer2D if we expose it?
-        # Or just ignore scaling for now?
-        # The scaling is for "juice" (pulse effect).
-        # TextRenderer uses Renderer2D.draw_texture.
-        # Renderer2D.draw_texture draws a quad.
-        # We can implement scaling in TextRenderer or Renderer2D.
-        # For now, let's just render without scaling to avoid complexity, or implement a simple scale in TextRenderer?
-        # TextRenderer.render_text calls renderer.draw_texture.
-        # We can add a scale parameter to render_text?
-        # Let's just render it normally for now.
-        
-        self.text_renderer.render_text(renderer, score_text, panel_x, panel_y, (255, 255, 255))
-        
-        # Wave UI
-        wave_lbl = self.game.localization.get("wave_reached").replace("REACHED", "").strip() # Reuse key or just "WAVE"
-        # Actually let's use a simple "WAVE" if possible, but for now reuse
-        wave_text = f"WAVE {self.wave_manager.wave}"
-        
-        # Calculate target badge position (Top Right)
-        tw, th = self.text_renderer.measure_text(wave_text)
-        badge_x = self.game.virtual_width - tw - 40
-        badge_y = 20
-        badge_w = tw + 20
-        badge_h = th + 10
-        
-        # Center Position
-        cx, cy = self.game.virtual_width // 2, self.game.virtual_height // 2
-        
-        if self.wave_manager.wave_timer < 3.0: 
-             # Animation Phases
-             t = self.wave_manager.wave_timer
-             
-             current_x, current_y = cx - tw // 2, cy
-             current_scale = 1.0
-             current_color = (1.0, 1.0, 1.0, 1.0)
-             show_alert = False
-             
-             if t < 0.5: 
-                 # Phase 1: Slam Entrance (0.0 - 0.5s)
-                 # Scale 3.0 -> 1.5
-                 progress = t / 0.5
-                 current_scale = 3.0 - 1.5 * progress
-                 current_color = (1.0, 0.84, 0.0, progress) # Fade in Gold
-                 
-             elif t < 2.0:
-                 # Phase 2: Alert Pulse (0.5s - 2.0s)
-                 # Scale Pulse 1.5 -> 1.6 -> 1.5
-                 pulse_t = (t - 0.5) * 4 # Speed multiplier
-                 import math
-                 pulse = 0.1 * math.sin(pulse_t)
-                 current_scale = 1.5 + pulse
-                 
-                 # Color Pulse: Red -> Orange
-                 # Red: (1.0, 0.0, 0.0)
-                 # Orange: (1.0, 0.5, 0.0)
-                 color_t = (math.sin(pulse_t * 2) + 1) / 2 # 0 to 1
-                 current_color = (1.0, 0.5 * color_t, 0.0, 1.0)
-                 show_alert = True
-                 
-             else:
-                 # Phase 3: Exit to Badge (2.0s - 3.0s)
-                 # Interpolate Position: Center -> Badge
-                 # Interpolate Scale: 1.5 -> 1.0
-                 progress = (t - 2.0) / 1.0
-                 # Ease in out
-                 progress = progress * progress * (3 - 2 * progress)
-                 
-                 start_x = cx - tw // 2
-                 start_y = cy
-                 end_x = badge_x + 10
-                 end_y = badge_y + 5
-                 
-                 current_x = start_x + (end_x - start_x) * progress
-                 current_y = start_y + (end_y - start_y) * progress
-                 current_scale = 1.5 - 0.5 * progress
-                 current_color = (1.0, 1.0, 1.0, 1.0) # Back to white
-                 
-             # Render Wave Text
-             # Ignoring scale for now
-             self.text_renderer.render_text(renderer, wave_text, current_x, current_y, current_color)
-             
-             if show_alert:
-                 # Render "GET READY" below
-                 alert_text = "GET READY"
-                 aw, ah = self.text_renderer.measure_text(alert_text)
-                 # Pulse alpha
-                 alpha = (math.sin(t * 10) + 1) / 2 * 0.5 + 0.5
-                 self.text_renderer.render_text(renderer, alert_text, cx - aw // 2, cy + 60, (1.0, 0.2, 0.2, alpha))
-             
-        else:
-             # Persistent Badge (Top Right)
-             
-             # Badge Background
-             renderer.draw_rect(badge_x, badge_y, badge_w, badge_h, (0.2, 0.2, 0.8, 0.6))
-             
-             # Badge Border
-             renderer.draw_rect(badge_x, badge_y, badge_w, 2, (0.5, 0.5, 1.0, 1.0)) # Top
-             renderer.draw_rect(badge_x, badge_y + badge_h - 2, badge_w, 2, (0.5, 0.5, 1.0, 1.0)) # Bottom
-             renderer.draw_rect(badge_x, badge_y, 2, badge_h, (0.5, 0.5, 1.0, 1.0)) # Left
-             renderer.draw_rect(badge_x + badge_w - 2, badge_y, 2, badge_h, (0.5, 0.5, 1.0, 1.0)) # Right
-             
-             self.text_renderer.render_text(renderer, wave_text, badge_x + 10, badge_y + 5, (255, 255, 255))
-             
-        if self.paused:
-            # Draw Pause Overlay
-            # Fullscreen dark overlay
-            # glDisable(GL_TEXTURE_2D)
-            # glEnable(GL_BLEND)
-            renderer.draw_rect(0, 0, self.game.virtual_width, self.game.virtual_height, (0.0, 0.0, 0.0, 0.7))
-            
-            # Panel Background
-            cx, cy = self.game.virtual_width // 2, self.game.virtual_height // 2
-            panel_w, panel_h = 300, 400
-            panel_x = cx - panel_w // 2
-            panel_y = cy - panel_h // 2
-            
-            # Panel Background (Gradient)
-            # renderer.draw_chamfered_rect(panel_x, panel_y, panel_w, panel_h, (0.05, 0.1, 0.25, 0.9), radius=10, gradient_bot=(0.02, 0.05, 0.15, 0.95))
-            # Renderer2D doesn't support gradient_bot yet in draw_chamfered_rect call?
-            # Wait, I implemented draw_chamfered_rect in Renderer2D but I didn't check if it supports gradient.
-            # I implemented it with a single color.
-            # So let's just use single color for now.
-            renderer.draw_chamfered_rect(panel_x, panel_y, panel_w, panel_h, (0.05, 0.1, 0.25, 0.9), radius=10)
-            
-            # Panel Border (Glowing Cyan)
-            renderer.draw_chamfered_rect(panel_x - 3, panel_y - 3, panel_w + 6, panel_h + 6, (0.0, 0.8, 1.0, 0.8), radius=10)
-            renderer.draw_chamfered_rect(panel_x, panel_y, panel_w, panel_h, (0.05, 0.1, 0.25, 0.9), radius=10)
-            
-            # Title
-            title_text = self.game.localization.get("paused")
-            tw, th = self.text_renderer.measure_text(title_text)
-            self.text_renderer.render_text(renderer, title_text, cx - tw // 2, panel_y + 40, (255, 255, 255))
-            
-            # Buttons
-            for btn in self.pause_buttons:
-                btn.render(renderer)
+        self.hud.render(renderer)
                 
         renderer.end_frame()
-        
-        # glPopMatrix() # Removed because we are not using glPushMatrix for UI anymore (Renderer2D handles it)
-        # But wait, we used glPushMatrix at start of render() for the legacy world rendering.
-        # We need to pop it!
-        # But we called renderer.begin_frame() which sets up its own projection.
-        # Does renderer.end_frame() restore the previous projection? No.
-        # But we are at the end of render().
-        # The legacy glPopMatrix corresponds to the glPushMatrix at line 285.
-        # We should pop it to be clean, although next frame will reset.
-        # However, Renderer2D uses a shader, so the fixed function matrix stack is ignored during Renderer2D pass.
-        # But we should pop it for correctness if we are mixing.
-        
-        # glPopMatrix() # Removed extra pop
